@@ -1,10 +1,11 @@
 # scp ./move_jetbot.py jetson@192.168.0.240:/home/jetson/Documents/jetbot-master/notebooks/collision_avoidance
 # scp -r jetson@192.168.0.240:/home/jetson/Documents/jetbot-master/notebooks/collision_avoidance/images ./images
 # scp -r ./images/dataset jetson@192.168.0.240:/home/jetson/Documents/jetbot-master/notebooks/collision_avoidance/dataset
-# scp -r ./tf_model jetson@192.168.0.240:/home/jetson/Documents/jetbot-master/notebooks/collision_avoidance/tf_model
+# scp -r ./tf_model jetson@192.168.0.240:/home/jetson/Documents/jetbot-master/notebooks/collision_avoidance
 # scp -r ./jetbot jetson@192.168.0.240:/home/jetson/Documents/jetbot-master/notebooks/collision_avoidance/jetbot
 # jupyter notebook --no-browser --port=8888 --ip 0.0.0.0
 
+# FIX na debilne błędy:
 # rm -rf ~/.cache/gstreamer-1.0
 # source ~/.bashrc
 # export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libgomp.so.1
@@ -85,24 +86,26 @@ def classify_image(frame):
     return pred_value
 
 
-def move_robot(prob_free, speed=0.25, sleep_time=0.1):
+def move_robot(prob_free, speed=0.3, sleep_time=0.1):
     if prob_free > 0.5:
         robot.forward(speed)
     else:
+        robot.backward(speed)
+        time.sleep(sleep_time)
         robot.left(speed)
 
-    time.sleep(sleep_time)
-    robot.stop()
+    # time.sleep(sleep_time)
+    # robot.stop()
 
 
 def save_frame(frame):
     cv2.imwrite(f'./images/image_{i}.jpg', frame)
-    return i + 1
+    return 1
 
 
 if __name__ == '__main__':
     # 224
-    i = 0
+    i = 697
     print('start')
     camera = nano.Camera(flip=0, width=224, height=224, fps=30)
     print('start camera')
@@ -114,14 +117,12 @@ if __name__ == '__main__':
         try:
             print('Next frame', end='')
             frame = camera.read()
-            i = save_frame(frame)
+            i += save_frame(frame)
             prob_free = classify_image(frame)
-            is_free = prob_free > 0.5
+            is_free = prob_free > 0.9
             print(f': {"Free" if is_free else "Block"}: {prob_free * 100:.2f}%')
             move_robot(prob_free)
 
-            # if cv2.waitKey(25) & 0xFF == ord('q'):
-            #     break
         except:
             break
 
