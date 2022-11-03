@@ -9,30 +9,21 @@
 # rm -rf ~/.cache/gstreamer-1.0
 # source ~/.bashrc
 # export LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libgomp.so.1
-
+import os
 import cv2
-# from nanocamera.NanoCam import Camera
+import time
 import nanocamera as nano
-# import torch
 import numpy as np
-# import pandas as pd
-# import seaborn as sns
-# import matplotlib.pyplot as plt
-# from sklearn.preprocessing import StandardScaler
-# from sklearn.model_selection import train_test_split
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dropout, Dense
 from tensorflow.keras import layers
-import os
 from tensorflow.keras.preprocessing.image import img_to_array
-
 from jetbot import Robot
 
 
-import time
 
 
 def load_model(model_path=os.path.join('tf_model', 'best_model.ckpt')):
