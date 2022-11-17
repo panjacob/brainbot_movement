@@ -1,4 +1,4 @@
-# scp ./move_jetbot.py jetson@192.168.0.240:/home/jetson/Documents/jetbot-master/notebooks/collision_avoidance
+# scp ./move_jetbot_17_11.py jetson@192.168.0.240:/home/jetson/Documents/jetbot-master/notebooks/collision_avoidance
 # scp -r jetson@192.168.0.240:/home/jetson/Documents/jetbot-master/notebooks/collision_avoidance/images ./images
 # scp -r ./images/dataset jetson@192.168.0.240:/home/jetson/Documents/jetbot-master/notebooks/collision_avoidance/dataset
 # scp -r ./tf_model jetson@192.168.0.240:/home/jetson/Documents/jetbot-master/notebooks/collision_avoidance
@@ -14,7 +14,7 @@
 # %pip install timm
 import nanocamera as nano
 
-camera = nano.Camera(flip=0, width=224, height=224, fps=30)
+camera = nano.Camera(flip=0, width=640, height=640, fps=10)
 frame = camera.read()
 print('Pierwszy frame', frame)
 
@@ -23,15 +23,7 @@ import urllib.request
 import os
 import cv2
 import time
-
 import numpy as np
-import tensorflow as tf
-# from tensorflow import keras
-# from tensorflow.keras.models import Sequential
-# from tensorflow.keras.callbacks import ModelCheckpoint
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dropout, Dense
-# from tensorflow.keras import layers
-from tensorflow.keras.preprocessing.image import img_to_array
 from jetbot import Robot
 
 
@@ -54,6 +46,7 @@ def load_model_midas():
 
 
 def predict_midas(img):
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     input_batch = transform(img).to(device)
     with torch.no_grad():
         prediction = midas(input_batch)
@@ -66,45 +59,6 @@ def predict_midas(img):
         ).squeeze()
 
     return prediction.cpu().numpy()
-
-
-def load_model_keras(model_path=os.path.join('tf_model', 'best_model.ckpt')):
-    model_loaded = tf.keras.models.Sequential()
-    model_loaded.add(
-        tf.keras.layers.Conv2D(16, kernel_size=(3, 3), activation='relu', input_shape=(224, 224, 1), padding='same'))
-    # model.add(LeakyReLU(alpha=0.1))
-    model_loaded.add(tf.keras.layers.MaxPooling2D(pool_size=(2, 2), padding='same'))
-    model_loaded.add(tf.keras.layers.Conv2D(32, kernel_size=(3, 3), activation='relu', padding='same'))
-    # model.add(tf.keras.activations.relu(alpha=0.1))
-    model_loaded.add(tf.keras.layers.MaxPooling2D(pool_size=(2, 2), padding='same'))
-    model_loaded.add(tf.keras.layers.Conv2D(64, kernel_size=(3, 3), activation='relu', padding='same'))
-    # model.add(tf.keras.activations.relu(alpha=0.1))
-    model_loaded.add(tf.keras.layers.MaxPooling2D(pool_size=(2, 2), padding='same'))
-    model_loaded.add(tf.keras.layers.Conv2D(64, kernel_size=(3, 3), activation='relu', padding='same'))
-    # model.add(tf.keras.activations.relu(alpha=0.1))
-    model_loaded.add(tf.keras.layers.MaxPooling2D(pool_size=(2, 2), padding='same'))
-    model_loaded.add(tf.keras.layers.Flatten())
-    model_loaded.add(tf.keras.layers.Dropout(0.5))
-    model_loaded.add(tf.keras.layers.Dense(128, activation=tf.nn.relu))
-    # model.add(tf.keras.activations.relu(alpha=0.1))
-    model_loaded.add(Dropout(0.5))
-    model_loaded.add(tf.keras.layers.Dense(256, activation=tf.nn.relu))
-    model_loaded.add(tf.keras.layers.Dense(1, activation='sigmoid'))
-    # model_loaded.summary()
-    # print(model_loaded)
-    model_loaded.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-    model_loaded.load_weights(model_path)
-    return model_loaded
-
-
-def classify_image(frame):
-    # image = cv2.resize(frame, (224, 224))
-    # image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    img_arr = img_to_array(frame)
-    img_arr = img_arr / 255.
-    np_image = np.expand_dims(img_arr, axis=0)
-    pred_value = model.predict(np_image)[0][0]
-    return pred_value
 
 
 def move_robot(prob_free, speed=0.3, sleep_time=0.1):
@@ -120,41 +74,43 @@ def move_robot(prob_free, speed=0.3, sleep_time=0.1):
 
 
 def save_frame(frame):
-    cv2.imwrite(f'./images/image_{i}.jpg', frame)
+    cv2.imwrite(f'./images/image_{i}.jpg', frame[120:160])
     return 1
 
 
+def average(depth_image):
+    avg = np.max(depth_image)
+    # avg1 = np.max(depth_image[0:40, :])
+    # depth_image.shape
+
+    avg_left = np.average(depth_image[200:400, 50:200])
+    avg_mid = np.average(depth_image[200:400, 200:450])
+    avg_right = np.average(depth_image[200:400, 450:600])
+
+    # avg5 = np.max(depth_image[160:200, :])
+    print('average', avg, ' = ', avg_left, avg_mid, avg_right, depth_image.shape)
+
+
 if __name__ == '__main__':
-    # 224
     i = 697
     print('start')
-    # camera = nano.Camera(flip=0, width=224, height=224, fps=30)
-    print('start camera')
-    model = load_model_keras()
-    print('load model')
     robot = Robot()
     print('CSI Camera ready? - ', camera.isReady())
 
     print('load_midas')
     midas, transform, device = load_model_midas()
-    # while camera.isReady():
     while True:
-        # try:
         print('Next frame ', end='')
         frame = camera.read()
         if frame is None:
             print('Frame is NONE', camera.isReady())
-            camera = nano.Camera(flip=0, width=224, height=224, fps=30)
+            camera = nano.Camera(flip=0, width=640, height=640, fps=30)
             continue
         # i += save_frame(frame)
         depth_image = predict_midas(frame)
-        prob_free = classify_image(depth_image)
-        is_free = prob_free > 0.3
-        print(f': {"Free" if is_free else "Block"}: {prob_free * 100:.2f}%')
-        move_robot(prob_free)
-
-    # except Exception as e:
-    #     print("ERROR: ", e)
+        average(depth_image)
+        time.sleep(2)
+        # move_robot(is_free)
 
     print('Robot.stop()')
     robot.stop()
@@ -162,7 +118,6 @@ if __name__ == '__main__':
     camera.release()
     del camera
     print('end')
-
 
 # (gst-plugin-scanner:17764): GStreamer-WARNING **: 12:24:08.588: Failed to load plugin '/usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvcompositor.so': libgstbadvideo-1.0.so.
 # 0: cannot open shared object file: No such file or directory
