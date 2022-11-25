@@ -14,10 +14,11 @@
 # %pip install timm
 import nanocamera as nano
 
-camera = nano.Camera(flip=0, width=640, height=640, fps=10)
+RESOLUTION = (1280, 720)
+camera = nano.Camera(flip=0, width=RESOLUTION[0], height=RESOLUTION[1], fps=10)
 frame = camera.read()
 print('Pierwszy frame', frame)
-
+import asyncio
 import torch
 import urllib.request
 import os
@@ -61,12 +62,34 @@ def predict_midas(img):
     return prediction.cpu().numpy()
 
 
-def move_robot(prob_free, speed=0.3, sleep_time=0.1):
-    if prob_free > 0.3:
+async def move_robot(is_free, speed=0.3, sleep_time=0.2):
+    if is_free[1] and is_free[0] and is_free[2]:
+        print('FORWARD')
+        robot.forward(speed)
+    elif is_free[1] and is_free[0]:
+        print('LEFT')
+        robot.left(speed)
+        time.sleep(0.1)
+        robot.forward(speed)
+    elif is_free[1] and is_free[2]:
+        print('RIGHT')
+        robot.left(speed)
+        time.sleep(0.1)
+        robot.forward(speed)
+    elif is_free[0]:
+        print('BACK LEFT')
+        robot.left(speed)
+        time.sleep(sleep_time)
+        robot.forward(speed)
+    elif is_free[2]:
+        print('BACK RIGHT')
+        robot.right(speed)
+        time.sleep(sleep_time)
         robot.forward(speed)
     else:
+        print('BACK AROUND')
         robot.backward(speed)
-        time.sleep(sleep_time)
+        time.sleep(0.3)
         robot.left(speed)
 
     time.sleep(sleep_time)
@@ -78,46 +101,72 @@ def save_frame(frame):
     return 1
 
 
+MEAN_PIXEL_COUNT_RATIO = 0.1
+MEAN_PIXEL_COUNT = int(RESOLUTION[0] * 0.35 * RESOLUTION[1] * 0.2 * MEAN_PIXEL_COUNT_RATIO)
+
+
+def mean_biggest_values(array):
+    print('mean', MEAN_PIXEL_COUNT)
+    array = array.flatten()
+    ind = np.argpartition(array, -MEAN_PIXEL_COUNT)[MEAN_PIXEL_COUNT:]
+    return np.average(array[ind])
+
+
+Y_AVG = (int(RESOLUTION[1] * 0.4), int(RESOLUTION[1] * 0.6))
+X_AVG = (int(RESOLUTION[0] * 0.05), int(RESOLUTION[0] * 0.35), int(RESOLUTION[0] * 0.7), int(RESOLUTION[0] * 0.95))
+
+
 def average(depth_image):
-    avg = np.max(depth_image)
-    # avg1 = np.max(depth_image[0:40, :])
-    # depth_image.shape
-
-    avg_left = np.average(depth_image[200:400, 50:200])
-    avg_mid = np.average(depth_image[200:400, 200:450])
-    avg_right = np.average(depth_image[200:400, 450:600])
-
-    # avg5 = np.max(depth_image[160:200, :])
-    print('average', avg, ' = ', avg_left, avg_mid, avg_right, depth_image.shape)
+    left = mean_biggest_values(depth_image[Y_AVG[0]:Y_AVG[1], X_AVG[0]:X_AVG[1]])
+    mid = mean_biggest_values(depth_image[Y_AVG[0]:Y_AVG[1], X_AVG[1]:X_AVG[2]])
+    right = mean_biggest_values(depth_image[Y_AVG[0]:Y_AVG[1], X_AVG[2]:X_AVG[3]])
+    return [left, mid, right]
 
 
 if __name__ == '__main__':
-    i = 697
+    i = 0
     print('start')
     robot = Robot()
     print('CSI Camera ready? - ', camera.isReady())
 
     print('load_midas')
     midas, transform, device = load_model_midas()
-    while True:
-        print('Next frame ', end='')
-        frame = camera.read()
-        if frame is None:
-            print('Frame is NONE', camera.isReady())
-            camera = nano.Camera(flip=0, width=640, height=640, fps=30)
-            continue
-        # i += save_frame(frame)
-        depth_image = predict_midas(frame)
-        average(depth_image)
-        time.sleep(2)
-        # move_robot(is_free)
+    avg = [0, 0, 0]
+    is_free = [0, 0, 0]
+    frame_count = 3
+    min_safe_distance = 500
 
-    print('Robot.stop()')
+    while True:
+        i += 1
+        frame = camera.read()
+        # if frame is None:
+        #     print('Frame is NONE', camera.isReady())
+        #     camera = nano.Camera(flip=0, width=224, height=224, fps=30)
+        #     continue
+
+        depth_image = predict_midas(frame)
+        avg_temp = average(depth_image)
+        avg[0] += avg_temp[0]
+        avg[1] += avg_temp[1]
+        avg[2] += avg_temp[2]
+        if i == frame_count:
+            avg[0] = avg[0] / frame_count
+            avg[1] = avg[1] / frame_count
+            avg[2] = avg[2] / frame_count
+            is_free[0] = avg[0] < min_safe_distance
+            is_free[1] = avg[1] < min_safe_distance
+            is_free[2] = avg[2] < min_safe_distance
+
+            print('x', avg[0], avg[1], avg[2], is_free)
+            i = 0
+            avg = [0, 0, 0]
+            asyncio.run(move_robot(is_free))
+        # if i == 1:
+        #     robot.stop()
+
     robot.stop()
-    print('robot stopped')
     camera.release()
     del camera
-    print('end')
 
 # (gst-plugin-scanner:17764): GStreamer-WARNING **: 12:24:08.588: Failed to load plugin '/usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstnvcompositor.so': libgstbadvideo-1.0.so.
 # 0: cannot open shared object file: No such file or directory
